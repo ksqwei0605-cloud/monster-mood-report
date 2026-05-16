@@ -72,7 +72,7 @@
   * { border-color: var(--color-border); }
   html, body { background: var(--color-background); color: var(--color-foreground); }
   body {
-    font-family: ui-rounded, "Hiragino Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-family: "ZCOOL KuaiLe", ui-rounded, "Hiragino Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     background:
       radial-gradient(at 10% 0%, oklch(0.93 0.07 340 / 0.55), transparent 50%),
       radial-gradient(at 90% 10%, oklch(0.9 0.07 230 / 0.5), transparent 55%),
@@ -117,5 +117,70 @@
   @keyframes wiggle {
     0%,100% { transform: rotate(-3deg) }
     50% { transform: rotate(3deg) }
+  }
+
+  /* ----- AnimatedMonster animations ----- */
+
+  /* Whole body: gentle float + breathing scale, 3s loop */
+  .am-breathe { animation: amBreathe 3s ease-in-out infinite; transform-origin: 50% 60%; }
+  @keyframes amBreathe {
+    0%,100% { transform: translateY(0) scale(1); }
+    50%     { transform: translateY(-6px) scale(1.03); }
+  }
+
+  /* Eye blink: fast collapse every 2s. Closed only ~120ms of the cycle. */
+  .am-blink { animation: amBlink 2s ease-in-out infinite; transform-origin: 50% 50%; }
+  @keyframes amBlink {
+    0%, 90%, 100% { transform: scaleY(0); opacity: 0; }
+    93%, 97%      { transform: scaleY(1); opacity: 0.85; }
+  }
+
+  /* Wings: tiny flap (rotate around inner edge). Two variants for L/R symmetry. */
+  .am-wing-l { animation: amWingL 1.2s ease-in-out infinite; transform-origin: 100% 50%; }
+  .am-wing-r { animation: amWingR 1.2s ease-in-out infinite; transform-origin: 0% 50%; }
+  @keyframes amWingL {
+    0%,100% { transform: rotate(-6deg); }
+    50%     { transform: rotate(6deg); }
+  }
+  @keyframes amWingR {
+    0%,100% { transform: rotate(6deg); }
+    50%     { transform: rotate(-6deg); }
+  }
+
+  /* Tail: gentle sway */
+  .am-tail { animation: amTail 2.6s ease-in-out infinite; transform-origin: 0% 50%; }
+  @keyframes amTail {
+    0%,100% { transform: rotate(-10deg); }
+    50%     { transform: rotate(14deg); }
+  }
+
+  /* Sign card: light rocking */
+  .am-sign { animation: amSign 3.4s ease-in-out infinite; transform-origin: 50% 0%; }
+  @keyframes amSign {
+    0%,100% { transform: rotate(-2.5deg); }
+    50%     { transform: rotate(2.5deg); }
+  }
+
+  /* Stars: twinkle + tiny drift; durations/delays staggered inline. */
+  .am-star { animation: amStar 2.4s ease-in-out infinite; will-change: transform, opacity; }
+  @keyframes amStar {
+    0%,100% { transform: translateY(0) scale(0.9); opacity: 0.35; }
+    50%     { transform: translateY(-4px) scale(1.15); opacity: 1; }
+  }
+
+  /* ===== ReportScreen 叶子轨道:外层 wrapper 顺时针,叶子文字反向逆时针,
+     文字始终保持竖直可读。两个动画严格同周期 + linear,确保不偏移。 */
+  @keyframes petalOrbit        { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
+  @keyframes petalOrbitCounter { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
+
+  /* ===== ReportScreen 云朵起伏:轻微 translate + skewX + scaleY,
+     配合 feDisplacementMap 滤镜的鼓包轮廓,看起来像云在被风吹拂、波浪起伏。
+     用 CSS 而不是 SMIL <animate> 是因为 SMIL 在 React SSR + hydration 下偶发失效。 */
+  .cloud-flow { animation: cloudFlow 3s ease-in-out infinite; transform-origin: center; will-change: transform; }
+  @keyframes cloudFlow {
+    0%, 100% { transform: translate(0, 0)      skewX(0deg)    scaleY(1);    }
+    25%      { transform: translate(7px, -5px)  skewX(1.6deg)  scaleY(1.04); }
+    50%      { transform: translate(0, -2px)    skewX(0deg)    scaleY(0.97); }
+    75%      { transform: translate(-7px, 4px)  skewX(-1.6deg) scaleY(1.03); }
   }
 }

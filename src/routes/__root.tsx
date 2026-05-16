@@ -82,6 +82,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      // 站酷快乐体(ZCOOL KuaiLe)—— 全站可爱圆体中文。preconnect 加速握手。
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap",
+      },
       {
         rel: "stylesheet",
         href: appCss,

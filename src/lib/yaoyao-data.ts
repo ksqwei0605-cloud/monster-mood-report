@@ -41,7 +41,7 @@ export const yaoyaoData = {
       answer: "如果你现在状态很散，硬学可能效率不高，不如先做最简单的一题试试看。" },
     { emotion: "讨厌", name: "嫌叽叽", emoji: "😒", color: "#b8e6c8", style: "别扭、嫌弃、嘴硬",
       answer: "你不是不会学，你只是又想一口气逆天改命。先别演热血番主角了。" },
-    { emotion: "愤怒", name: "炸毛球", emoji: "😤", color: "#ffb3a8", style: "生气、炸毛、行动派",
+    { emotion: "愤怒", name: "炸毛毛", emoji: "😤", color: "#ffb3a8", style: "生气、炸毛、行动派",
       answer: "别磨叽！定 25 分钟，狠狠干完一小块，再决定要不要继续！" },
   ],
 };

@@ -80,21 +80,27 @@ export function AnimatedMonster({
 
       {/* 视频主体 —— autoplay + loop + muted + playsinline 保证移动端能自动播 */}
       {/* maskImage 让视频边缘渐隐到透明,以消除视频背景与卡片背景的色差 */}
-      <video
-        className="absolute inset-0 w-full h-full object-contain select-none"
-        src={src}
-        poster={poster}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden
+      {/* iOS 不支持 video 元素上的 CSS mask,所以把 mask 放在 wrapper 上 */}
+      <div
+        className="absolute inset-0"
         style={{
           WebkitMaskImage: maskValue,
           maskImage: maskValue,
         }}
-      />
+      >
+        <video
+          className="absolute inset-0 w-full h-full object-contain select-none"
+          src={src}
+          poster={poster}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden
+          style={{ background: "#1a0a2e" }}
+        />
+      </div>
     </div>
   );
 }

@@ -351,12 +351,18 @@ function UploadScreen({
             >
               <video
                 src={encodeURI(d.src)}
+                poster="/monster.png"
+                autoPlay
+                loop
                 muted
                 playsInline
-                preload="metadata"
+                preload="auto"
                 className="w-full h-full object-cover pointer-events-none"
+                style={{ background: "#1a0a2e" }}
                 onLoadedData={(e) => {
-                  e.currentTarget.currentTime = 0.05;
+                  const v = e.currentTarget;
+                  v.currentTime = 0.05;
+                  v.play().catch(() => {});
                 }}
               />
               <span
@@ -433,15 +439,20 @@ function LoadingScreen({ seconds }: { seconds: number }) {
             <video
               key={monsterIdx}
               src={encodeURI(LOADING_MONSTERS[monsterIdx])}
+              poster="/monster.png"
               autoPlay
               muted
               playsInline
+              preload="auto"
               className="w-full h-full object-cover"
+              style={{ background: "#1a0a2e" }}
               onEnded={() =>
                 setMonsterIdx((i) => (i + 1) % LOADING_MONSTERS.length)
               }
               onLoadedData={(e) => {
-                e.currentTarget.currentTime = 0.05;
+                const v = e.currentTarget;
+                v.currentTime = 0.05;
+                v.play().catch(() => {});
               }}
             />
           </motion.div>
@@ -1044,21 +1055,27 @@ function CenterMonster({ size = CENTER_SIZE }: { size?: number }) {
         }}
       />
       {/* ★ 替换这里的 src 即可换中心妖怪视频 */}
-      <video
-        src="/monster.mp4"
-        poster="/monster.png"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden
-        className="relative w-full h-full object-contain select-none"
+      {/* iOS 不支持 video 上的 CSS mask,把 mask 放在 wrapper div 上 */}
+      <div
+        className="relative w-full h-full"
         style={{
           WebkitMaskImage: maskValue,
           maskImage: maskValue,
         }}
-      />
+      >
+        <video
+          src="/monster.mp4"
+          poster="/monster.png"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden
+          className="w-full h-full object-contain select-none"
+          style={{ background: "#1a0a2e" }}
+        />
+      </div>
     </div>
   );
 }

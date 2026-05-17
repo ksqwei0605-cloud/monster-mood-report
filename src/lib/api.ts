@@ -1,7 +1,10 @@
-// Use same host as the page so SSH tunnel + direct access both work
-const API_BASE = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:8787`
-  : "http://localhost:8787";
+// DEV: point to localhost:8787 directly.
+// PRODUCTION (VITE_API_BASE=""): same-origin requests proxied by nginx.
+const API_BASE = import.meta.env.VITE_API_BASE ?? (
+  typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:8787`
+    : "http://localhost:8787"
+);
 
 export interface ReportData {
   monster: {
@@ -29,7 +32,7 @@ export interface ReportData {
 
 interface TaskResponse {
   task_id: string;
-  status: "processing" | "completed" | "failed";
+  status: "pending" | "processing" | "completed" | "failed";
   result?: ReportData;
   error?: string;
 }

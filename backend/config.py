@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 from __future__ import annotations
 
 import os
@@ -34,3 +35,41 @@ ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm", "video/x-ms
 # -- Video frame extraction --
 MAX_VIDEO_FRAMES = 4  # max frames to send to vision model
 VIDEO_FRAME_WIDTH = 480  # downscale frames to keep base64 within vLLM context window
+=======
+from __future__ import annotations
+
+import os
+
+# -- LLM provider for text generation (reports, answers) --
+LLM_PROVIDER = os.getenv("YAOYAO_LLM_PROVIDER", "deepseek")
+
+# -- Vision provider for video understanding --
+VISION_PROVIDER = os.getenv("YAOYAO_VISION_PROVIDER", "vllm")
+
+# -- DeepSeek (text) --
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+DEEPSEEK_API_KEY = os.getenv(
+    "DEEPSEEK_API_KEY",
+    "sk-4ea33f07d6b44a1b8a55d8d6cfb8b121",
+)
+DEEPSEEK_MODEL = "deepseek-chat"
+
+# -- vLLM / Qwen3-VL (vision) --
+VLLM_BASE_URL = "http://localhost:8100/v1"
+VLLM_MODEL = "/root/Qwen3-VL-32B-Instruct-FP8"
+
+# -- OpenAI-Next (cloud, requires internet) --
+OPENAI_BASE_URL = "https://api.openai-next.com/v1"
+OPENAI_API_KEY = os.getenv("YAOYAO_API_KEY", "sk-8TfEUFiXV0lrMUH22dDd4a6cB74c4f1fA82b2f57E5146fB3")
+VIDEO_MODEL = "doubao-seed-2-0-lite-260215"
+OPENAI_LLM_MODEL = "deepseek-v3.2"
+
+# -- Temp file storage --
+TEMP_DIR = os.path.join(os.path.dirname(__file__), "temp")
+MAX_VIDEO_SIZE_MB = 200
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"}
+
+# -- Video frame extraction --
+MAX_VIDEO_FRAMES = 4  # max frames to send to vision model
+VIDEO_FRAME_WIDTH = 480  # downscale frames to keep base64 within vLLM context window
+>>>>>>> Stashed changes

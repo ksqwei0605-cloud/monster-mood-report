@@ -1,38 +1,77 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { yaoyaoData, type EmotionMonster } from "@/lib/yaoyao-data";
+import { yaoyaoData, setYaoyaoData, setYaoyaoAnswers, type EmotionMonster } from "@/lib/yaoyao-data";
 import { CuteMonster, ScreenFrame } from "./CuteMonster";
 import { AnimatedMonster } from "@/components/AnimatedMonster";
+import { uploadVideo, pollTask, generateAnswers } from "@/lib/api";
 
-type Step = "monster" | "report" | "transition" | "questions" | "answers" | "card";
+// 增加 upload / loading 两步,对应后端的"上传视频→等待分析→拿到 ReportData"
+type Step = "upload" | "loading" | "monster" | "report" | "transition" | "questions" | "answers" | "card";
 
 export function YaoyaoApp() {
-  const [step, setStep] = useState<Step>("monster");
+  // ★ 默认从 upload 进。想跳过后端直接看 demo UI?把这里改成 "monster"。
+  const [step, setStep] = useState<Step>("upload");
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [pollSeconds, setPollSeconds] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<EmotionMonster | null>(null);
 
   const go = (s: Step) => setStep(s);
 
+  // 上传视频 → 拿 task_id → 轮询 → 用 ReportData 覆盖 yaoyaoData → 进 monster 屏
+  // mutate yaoyaoData 让所有 6 个 Screen 不用改一行就能读到后端真实数据
+  const handleUpload = async (file: File) => {
+    setUploadError(null);
+    setPollSeconds(0);
+    try {
+      const tid = await uploadVideo(file);
+      setTaskId(tid);
+      go("loading");
+      const result = await pollTask(tid, (elapsed) => setPollSeconds(elapsed));
+      setYaoyaoData(result);
+      go("monster");
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "上传或分析失败");
+      go("upload");
+    }
+  };
+
+  // 用户在 Screen 4 选了一个问题 → 进 Screen 5 之前先调 generate-answers
+  // 把 5 妖怪的 answer 写回 yaoyaoData,Screen 5 读到的 m.answer 就是真实的
+  const handlePickQuestion = async (q: string) => {
+    setSelectedQuestion(q);
+    go("answers");
+    if (taskId) {
+      try {
+        const monsters = await generateAnswers(taskId, q);
+        setYaoyaoAnswers(monsters);
+      } catch {
+        toast("小妖怪们走丢了,先用默认答案 🥺");
+      }
+    }
+  };
+
   const restart = () => {
+    setTaskId(null);
+    setPollSeconds(0);
     setSelectedQuestion(null);
     setSelectedAnswer(null);
-    setStep("monster");
+    setUploadError(null);
+    setStep("upload");
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center pb-10">
       <Header />
+      {step === "upload" && <UploadScreen onUpload={handleUpload} error={uploadError} />}
+      {step === "loading" && <LoadingScreen seconds={pollSeconds} />}
       {step === "monster" && <MonsterScreen onNext={() => go("report")} />}
       {step === "report" && <ReportScreen onNext={() => go("transition")} />}
       {step === "transition" && <TransitionScreen onDone={() => go("questions")} />}
       {step === "questions" && (
-        <QuestionsScreen
-          onPick={(q) => {
-            setSelectedQuestion(q);
-            go("answers");
-          }}
-        />
+        <QuestionsScreen onPick={handlePickQuestion} />
       )}
       {step === "answers" && selectedQuestion && (
         <AnswersScreen
@@ -67,6 +106,290 @@ function Header() {
       </div>
       <span className="yy-chip">轻娱乐 · Demo</span>
     </div>
+  );
+}
+
+/* ---------------- Screen 0a: Upload ---------------- */
+/**
+ * UploadScreen —— 让用户选一段 mp4 上传到后端。
+ * 视觉:梦幻紫色卡片 + 选文件按钮 + 上传按钮(都用渐变胶囊)。
+ * 选好文件后会显示文件名 + 体积 + 内嵌 video preview。
+ */
+function UploadScreen({
+  onUpload,
+  error,
+}: {
+  onUpload: (f: File) => Promise<void> | void;
+  error: string | null;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 切换文件时释放上一个 blob URL,防止内存泄漏
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  const pickFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!f.type.startsWith("video/")) {
+      toast("需要一段视频文件喔 📹");
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+  };
+
+  const handleSubmit = async () => {
+    if (!file || submitting) return;
+    setSubmitting(true);
+    try {
+      await onUpload(file);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ScreenFrame keyId="upload">
+      {/* 标题:渐变粉紫字,和 CardScreen 大标题同款风格 */}
+      <h1
+        className="text-center font-extrabold mb-1 mt-2"
+        style={{
+          fontSize: "clamp(1.7rem, 7vw, 2.2rem)",
+          background: "linear-gradient(135deg, #c084fc 0%, #ec4899 50%, #a855f7 100%)",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+          WebkitTextFillColor: "transparent",
+          letterSpacing: "0.06em",
+          filter: "drop-shadow(0 2px 8px rgba(196,167,231,0.55))",
+        }}
+      >
+        上传一段视频 🎬
+      </h1>
+      <p
+        className="text-center text-xs mb-5"
+        style={{ color: "rgba(74,29,86,0.7)" }}
+      >
+        小妖怪要从画面里读出你今天的心情
+      </p>
+
+      {/* 渐变描边 + 磨砂玻璃卡 */}
+      <div
+        className="relative rounded-[28px] mb-4"
+        style={{
+          padding: "2px",
+          background: "linear-gradient(135deg, rgba(216,180,254,0.95), rgba(249,168,212,0.95), rgba(196,181,253,0.95))",
+          boxShadow: "0 12px 30px -8px rgba(168,121,224,0.55)",
+        }}
+      >
+        <div
+          className="rounded-[26px] p-5"
+          style={{
+            background: "rgba(255,253,255,0.78)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+          }}
+        >
+          {/* 隐藏 input,自定义按钮 */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(e) => pickFile(e.target.files?.[0])}
+          />
+
+          {previewUrl ? (
+            <>
+              <video
+                src={previewUrl}
+                controls
+                playsInline
+                className="w-full rounded-2xl mb-3 select-none"
+                style={{ maxHeight: 240, background: "#000" }}
+              />
+              <div
+                className="text-xs mb-3 truncate"
+                style={{ color: "rgba(74,29,86,0.75)" }}
+                title={file?.name}
+              >
+                📁 {file?.name}{" "}
+                <span style={{ opacity: 0.6 }}>
+                  ({((file?.size ?? 0) / 1024 / 1024).toFixed(1)} MB)
+                </span>
+              </div>
+              <button
+                onClick={() => inputRef.current?.click()}
+                className="w-full text-sm mb-2"
+                style={{
+                  background: "rgba(255,255,255,0.7)",
+                  color: "#7a3d8a",
+                  borderRadius: 999,
+                  padding: "0.7rem 1rem",
+                  border: "1.5px solid rgba(196,181,253,0.7)",
+                }}
+              >
+                🔄 换一个视频
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => inputRef.current?.click()}
+              className="w-full font-semibold"
+              style={{
+                background: "rgba(255,255,255,0.6)",
+                color: "#7a3d8a",
+                borderRadius: 22,
+                padding: "1.4rem 1rem",
+                border: "2px dashed rgba(196,181,253,0.7)",
+                fontSize: "0.95rem",
+              }}
+            >
+              📎 点这里选一段 mp4
+              <div
+                className="text-xs mt-1 font-normal"
+                style={{ color: "rgba(74,29,86,0.55)" }}
+              >
+                支持 mp4 / mov / webm,最大 200MB
+              </div>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div
+          className="rounded-2xl px-4 py-3 mb-3 text-sm"
+          style={{
+            background: "rgba(255,180,200,0.45)",
+            color: "#7a1235",
+            border: "1px solid rgba(244,114,182,0.5)",
+          }}
+        >
+          ⚠️ {error}
+        </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={!file || submitting}
+        className="w-full font-bold transition-transform active:scale-[0.98]"
+        style={{
+          background:
+            file && !submitting
+              ? "linear-gradient(135deg, #f7a8c4 0%, #c8a6e9 55%, #a3c4ff 100%)"
+              : "linear-gradient(135deg, #d4c4dc, #c0b3d0)",
+          color: "white",
+          borderRadius: 999,
+          padding: "1.05rem 1.5rem",
+          fontSize: "1rem",
+          letterSpacing: "0.05em",
+          boxShadow: "0 14px 30px -8px rgba(196,167,231,0.6)",
+          opacity: !file || submitting ? 0.7 : 1,
+          cursor: !file || submitting ? "not-allowed" : "pointer",
+        }}
+      >
+        {submitting ? "上传中…" : "✨ 让妖妖看看 ✨"}
+      </button>
+    </ScreenFrame>
+  );
+}
+
+/* ---------------- Screen 0b: Loading ---------------- */
+/**
+ * LoadingScreen —— 后端在跑视觉模型 + LLM 生成报告时的等待屏。
+ * 视觉:旋转的水晶球 + 浮动星星 + 计时秒数。
+ */
+function LoadingScreen({ seconds }: { seconds: number }) {
+  const tips = [
+    "妖妖正在用魔法看视频…",
+    "把画面熬成今日小妖怪…",
+    "调好今日 MBTI 配方…",
+    "给云朵充能量值…",
+    "马上就好,再等一下下…",
+  ];
+  // 每 3 秒换一句
+  const tip = tips[Math.min(Math.floor(seconds / 3), tips.length - 1)];
+
+  return (
+    <ScreenFrame keyId="loading">
+      <div className="flex flex-col items-center justify-center" style={{ minHeight: "70vh" }}>
+        {/* 旋转水晶球 */}
+        <motion.div
+          className="relative"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+          style={{
+            width: 140,
+            height: 140,
+            borderRadius: "50%",
+            background:
+              "conic-gradient(from 0deg, #f9a8d4, #c4b5fd, #a3c4ff, #fde68a, #f9a8d4)",
+            boxShadow:
+              "0 0 60px rgba(196,167,231,0.6), 0 16px 40px -10px rgba(168,121,224,0.5)",
+          }}
+        >
+          <div
+            className="absolute inset-2 rounded-full flex items-center justify-center"
+            style={{
+              background:
+                "radial-gradient(circle at 35% 30%, white, rgba(255,220,240,0.8) 70%)",
+              fontSize: "3.5rem",
+            }}
+          >
+            🔮
+          </div>
+        </motion.div>
+
+        {/* 文字 */}
+        <h2
+          className="font-extrabold mt-7"
+          style={{
+            color: "#3d1745",
+            fontSize: "1.4rem",
+            letterSpacing: "0.05em",
+            textShadow: "0 1px 0 rgba(255,255,255,0.7)",
+          }}
+        >
+          {tip}
+        </h2>
+        <p className="mt-2 text-sm" style={{ color: "rgba(74,29,86,0.6)" }}>
+          已等候 {seconds} 秒
+        </p>
+
+        {/* 浮动小星星 */}
+        <div className="relative w-full mt-6" style={{ height: 60 }}>
+          {[
+            { top: "10%", left: "12%", size: 16, color: "#fbcfe8", delay: "0s" },
+            { top: "50%", left: "78%", size: 14, color: "#e9d5ff", delay: "0.5s" },
+            { top: "70%", left: "30%", size: 18, color: "#fde68a", delay: "1s" },
+            { top: "20%", left: "62%", size: 12, color: "#c4b5fd", delay: "0.3s" },
+          ].map((s, i) => (
+            <span
+              key={i}
+              className="absolute am-star"
+              style={{
+                top: s.top,
+                left: s.left,
+                animationDelay: s.delay,
+                fontSize: s.size,
+                color: s.color,
+              }}
+              aria-hidden
+            >
+              ✦
+            </span>
+          ))}
+        </div>
+      </div>
+    </ScreenFrame>
   );
 }
 

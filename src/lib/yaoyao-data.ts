@@ -1,3 +1,6 @@
+// 默认 demo 数据 —— 静态导出。所有 6 个 Screen 组件都 `import { yaoyaoData }` 直接读这个对象。
+// 后端集成后,YaoyaoApp 顶层会调 setYaoyaoData(apiData) 把字段覆盖进来,
+// 因为是 mutate 同一个对象引用,组件读到的就是新值,无需改组件代码。
 export const yaoyaoData = {
   monster: {
     name: "拖拖团",
@@ -47,3 +50,36 @@ export const yaoyaoData = {
 };
 
 export type EmotionMonster = (typeof yaoyaoData.emotionMonsters)[number];
+
+/**
+ * setYaoyaoData(partial) —— 把后端返回的 ReportData 字段覆盖进 yaoyaoData。
+ * 用 Object.assign 修改对象内部字段(不替换引用),所以正在 import 它的组件
+ * 在下一次 render 就会读到新值。配合上层 step 切换 setState 触发的重渲染,
+ * 整套流程都不需要改任何 Screen 内部代码。
+ *
+ * 注意:emotionMonsters 是数组,需要整体替换 + 保留与 mp4 文件名匹配的 name 字段。
+ * 后端默认返回 "炸毛球",这里在赋值前会修正为 "炸毛毛"(和 public/炸毛毛.mp4 对得上)。
+ */
+export function setYaoyaoData(data: Partial<typeof yaoyaoData>): void {
+  if (data.monster) Object.assign(yaoyaoData.monster, data.monster);
+  if (data.mbtiMix) yaoyaoData.mbtiMix = data.mbtiMix as typeof yaoyaoData.mbtiMix;
+  if (typeof data.energyScore === "number") yaoyaoData.energyScore = data.energyScore;
+  if (typeof data.emotionText === "string") yaoyaoData.emotionText = data.emotionText;
+  if (data.videoAnalysis) yaoyaoData.videoAnalysis = data.videoAnalysis as typeof yaoyaoData.videoAnalysis;
+  if (data.recommendedQuestions) yaoyaoData.recommendedQuestions = data.recommendedQuestions;
+  if (data.emotionMonsters) {
+    // 后端可能返回 "炸毛球",前端 mp4 文件名是 "炸毛毛",在这里修正
+    yaoyaoData.emotionMonsters = (data.emotionMonsters as typeof yaoyaoData.emotionMonsters).map((m) =>
+      m.name === "炸毛球" ? { ...m, name: "炸毛毛" } : m,
+    );
+  }
+}
+
+/** setYaoyaoAnswers —— 只更新 5 个情绪妖怪的 answer 文案(由 generate-answers 接口返回) */
+export function setYaoyaoAnswers(monsters: typeof yaoyaoData.emotionMonsters): void {
+  const byName = new Map(monsters.map((m) => [m.name === "炸毛球" ? "炸毛毛" : m.name, m.answer] as const));
+  yaoyaoData.emotionMonsters = yaoyaoData.emotionMonsters.map((m) => ({
+    ...m,
+    answer: byName.get(m.name) ?? m.answer,
+  }));
+}

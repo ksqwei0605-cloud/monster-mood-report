@@ -42,7 +42,17 @@ export function CuteMonster({
   );
 }
 
-export function ScreenFrame({ children, keyId }: { children: React.ReactNode; keyId: string }) {
+export function ScreenFrame({
+  children,
+  keyId,
+  bg,
+}: {
+  children: React.ReactNode;
+  keyId: string;
+  /** 可选背景图 URL。会以 absolute 方式贴在 motion.div 内,作为本屏的"画布",
+   *  内容永远渲染在它之上。不传 → 透明,沿用 body / 全局背景。 */
+  bg?: string;
+}) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -51,9 +61,25 @@ export function ScreenFrame({ children, keyId }: { children: React.ReactNode; ke
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md mx-auto px-5 py-6"
+        className="w-full max-w-md mx-auto px-5 py-6 relative overflow-hidden"
       >
-        {children}
+        {bg && (
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: `url("${bg}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center top",
+              backgroundRepeat: "no-repeat",
+              zIndex: 0,
+            }}
+          />
+        )}
+        {/* 内容层 z-index 1,保证永远在背景图之上 */}
+        <div className="relative" style={{ zIndex: 1 }}>
+          {children}
+        </div>
       </motion.div>
     </AnimatePresence>
   );

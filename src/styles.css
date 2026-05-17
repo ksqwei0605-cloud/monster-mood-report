@@ -83,6 +83,18 @@
 }
 
 @layer utilities {
+  /* 屏蔽 Chrome "Video Speed Controller" 扩展插在视频左上角的 0.95x 浮标。
+     扩展往页面里塞 .vsc-controller / [data-vscid] 节点,这里全部隐藏掉,
+     避免污染 LoadingScreen 里循环播放的 5 妖怪 mp4。 */
+  .vsc-controller,
+  [data-vscid],
+  div[id^="vsc-controller"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
   .yy-card {
     background: oklch(1 0 0 / 0.85);
     backdrop-filter: blur(10px);

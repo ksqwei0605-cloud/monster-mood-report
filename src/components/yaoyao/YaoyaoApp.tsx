@@ -115,6 +115,14 @@ function Header() {
  * 视觉:梦幻紫色卡片 + 选文件按钮 + 上传按钮(都用渐变胶囊)。
  * 选好文件后会显示文件名 + 体积 + 内嵌 video preview。
  */
+// 底部 3 个示例视频:点击 → fetch public/*.mp4 → 包成 File → 直接 onUpload。
+// 想换示例视频:改这个数组即可,src 用 / 开头的 public 路径,encodeURI 在渲染时处理中文。
+const DEMO_VIDEOS = [
+  { src: "/哈利波特.mp4", label: "哈利波特" },
+  { src: "/马.mp4", label: "小马" },
+  { src: "/monster.mp4", label: "小妖怪" },
+];
+
 function UploadScreen({
   onUpload,
   error,
@@ -126,6 +134,23 @@ function UploadScreen({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 点示例视频:抓取 blob → File → 直接走和"点提交"一样的 onUpload 通道。
+  // 这样 YaoyaoApp.handleUpload 自动 setTaskId + go("loading"),不需要改主控逻辑。
+  const handleDemoClick = async (src: string, label: string) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const resp = await fetch(encodeURI(src));
+      if (!resp.ok) throw new Error("示例视频加载失败");
+      const blob = await resp.blob();
+      const f = new File([blob], `${label}.mp4`, { type: blob.type || "video/mp4" });
+      await onUpload(f);
+    } catch {
+      toast("示例视频走丢了 🥺");
+      setSubmitting(false);
+    }
+  };
 
   // 切换文件时释放上一个 blob URL,防止内存泄漏
   useEffect(() => {
@@ -298,6 +323,56 @@ function UploadScreen({
       >
         {submitting ? "上传中…" : "✨ 让妖妖看看 ✨"}
       </button>
+
+      {/* 底部:3 个示例视频。点一下 = handleDemoClick → onUpload → 自动进 loading。
+          缩略图用 first-frame trick(onLoadedData 跳到 0.05s)避免黑屏。 */}
+      <div className="mt-5">
+        <p
+          className="text-center text-xs mb-2"
+          style={{ color: "rgba(74,29,86,0.65)" }}
+        >
+          ✨ 或者点一段示例视频试试 ✨
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {DEMO_VIDEOS.map((d) => (
+            <button
+              key={d.src}
+              onClick={() => handleDemoClick(d.src, d.label)}
+              disabled={submitting}
+              className="relative rounded-2xl overflow-hidden transition-transform active:scale-95"
+              style={{
+                aspectRatio: "9 / 16",
+                border: "2px solid rgba(196,181,253,0.65)",
+                boxShadow: "0 12px 26px -8px rgba(168,121,224,0.55)",
+                background: "rgba(255,253,255,0.6)",
+                cursor: submitting ? "not-allowed" : "pointer",
+                opacity: submitting ? 0.55 : 1,
+              }}
+            >
+              <video
+                src={encodeURI(d.src)}
+                muted
+                playsInline
+                preload="metadata"
+                className="w-full h-full object-cover pointer-events-none"
+                onLoadedData={(e) => {
+                  e.currentTarget.currentTime = 0.05;
+                }}
+              />
+              <span
+                className="absolute bottom-2 left-2 right-2 text-center text-sm font-bold rounded-full px-1.5 py-1"
+                style={{
+                  background: "rgba(255,253,255,0.88)",
+                  color: "#7a3d8a",
+                  backdropFilter: "blur(4px)",
+                }}
+              >
+                {d.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
     </ScreenFrame>
   );
 }
@@ -305,8 +380,16 @@ function UploadScreen({
 /* ---------------- Screen 0b: Loading ---------------- */
 /**
  * LoadingScreen —— 后端在跑视觉模型 + LLM 生成报告时的等待屏。
- * 视觉:旋转的水晶球 + 浮动星星 + 计时秒数。
+ * 视觉:彩虹光环(conic-gradient)旋转,里面循环播放 5 只情绪小妖怪 mp4(onEnded 切下一个) + 提示语 + 计时秒数。
  */
+const LOADING_MONSTERS = [
+  "/乐啵啵.mp4",
+  "/灰绵绵.mp4",
+  "/怯团团.mp4",
+  "/嫌叽叽.mp4",
+  "/炸毛毛.mp4",
+];
+
 function LoadingScreen({ seconds }: { seconds: number }) {
   const tips = [
     "妖妖正在用魔法看视频…",
@@ -318,34 +401,50 @@ function LoadingScreen({ seconds }: { seconds: number }) {
   // 每 3 秒换一句
   const tip = tips[Math.min(Math.floor(seconds / 3), tips.length - 1)];
 
+  // 5 只情绪妖怪的循环索引,每个 mp4 播完自然切到下一个
+  const [monsterIdx, setMonsterIdx] = useState(0);
+
   return (
-    <ScreenFrame keyId="loading">
+    <ScreenFrame keyId="loading" bg={COMMON_BG}>
       <div className="flex flex-col items-center justify-center" style={{ minHeight: "70vh" }}>
-        {/* 旋转水晶球 */}
+        {/* 旋转彩虹光环 + 内部 5 妖怪 mp4 循环 */}
         <motion.div
           className="relative"
           animate={{ rotate: 360 }}
           transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
           style={{
-            width: 140,
-            height: 140,
+            width: 220,
+            height: 220,
             borderRadius: "50%",
             background:
               "conic-gradient(from 0deg, #f9a8d4, #c4b5fd, #a3c4ff, #fde68a, #f9a8d4)",
             boxShadow:
-              "0 0 60px rgba(196,167,231,0.6), 0 16px 40px -10px rgba(168,121,224,0.5)",
+              "0 0 80px rgba(196,167,231,0.65), 0 20px 50px -12px rgba(168,121,224,0.55)",
           }}
         >
-          <div
-            className="absolute inset-2 rounded-full flex items-center justify-center"
-            style={{
-              background:
-                "radial-gradient(circle at 35% 30%, white, rgba(255,220,240,0.8) 70%)",
-              fontSize: "3.5rem",
-            }}
+          {/* 反向旋转抵消外层 rotate,保持视频画面不晕。
+              视频本身不旋转,但外圈光环还在转 → 视觉上是"光环包着静止的小妖怪"。 */}
+          <motion.div
+            className="absolute inset-2 rounded-full overflow-hidden"
+            animate={{ rotate: -360 }}
+            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+            style={{ background: "rgba(255,253,255,0.95)" }}
           >
-            🔮
-          </div>
+            <video
+              key={monsterIdx}
+              src={encodeURI(LOADING_MONSTERS[monsterIdx])}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+              onEnded={() =>
+                setMonsterIdx((i) => (i + 1) % LOADING_MONSTERS.length)
+              }
+              onLoadedData={(e) => {
+                e.currentTarget.currentTime = 0.05;
+              }}
+            />
+          </motion.div>
         </motion.div>
 
         {/* 文字 */}

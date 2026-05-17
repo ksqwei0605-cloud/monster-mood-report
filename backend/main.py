@@ -34,7 +34,7 @@ FIXED_EMOTION_MONSTERS: list[dict] = [
     {"emotion": "悲伤", "name": "灰绵绵", "emoji": "🥺", "color": "#c9d4e8", "style": "柔软、低落、像小云朵"},
     {"emotion": "害怕", "name": "怯团团", "emoji": "😨", "color": "#d6c9f0", "style": "小心、害怕、缩成一团"},
     {"emotion": "讨厌", "name": "嫌叽叽", "emoji": "😒", "color": "#b8e6c8", "style": "别扭、嫌弃、嘴硬"},
-    {"emotion": "愤怒", "name": "炸毛球", "emoji": "😤", "color": "#ffb3a8", "style": "生气、炸毛、行动派"},
+    {"emotion": "愤怒", "name": "炸毛毛", "emoji": "😤", "color": "#ffb3a8", "style": "生气、炸毛、行动派"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -70,6 +70,25 @@ def _normalize_report(raw: dict) -> ReportData:
                 item["percent"] = round(item["percent"] * 100 / total)
             diff = 100 - sum(item["percent"] for item in mbti)
             mbti[0]["percent"] += diff
+
+    # Frontend ReportScreen renders exactly 4 videoAnalysis leaves
+    va = raw.get("videoAnalysis") or []
+    if len(va) > 4:
+        raw["videoAnalysis"] = va[:4]
+    elif len(va) < 4:
+        pad = [{"icon": "🌙", "text": "今天的浏览节奏有点小情绪"}] * (4 - len(va))
+        raw["videoAnalysis"] = va + pad
+
+    # QuestionsScreen takes the first 3, keep at least 3 entries
+    rq = raw.get("recommendedQuestions") or []
+    if len(rq) < 3:
+        rq = rq + [
+            "今天最适合我的一个小行动是什么？",
+            "我到底是真的累，还是在逃避？",
+            "我为什么总在看很多方法，却还是不行动？",
+        ][: 3 - len(rq)]
+        raw["recommendedQuestions"] = rq
+
     return ReportData(**raw)
 
 

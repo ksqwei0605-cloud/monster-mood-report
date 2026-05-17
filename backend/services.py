@@ -17,6 +17,7 @@ from config import (
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_LLM_MODEL,
+    VIDEO_FRAME_WIDTH,
     VIDEO_MODEL,
     VISION_PROVIDER,
     VLLM_BASE_URL,
@@ -103,9 +104,9 @@ def _extract_video_frames(file_path: str, max_frames: int = MAX_VIDEO_FRAMES) ->
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", file_path,
-                "-vf", f"fps={fps:.2f}",
+                "-vf", f"fps={fps:.2f},scale={VIDEO_FRAME_WIDTH}:-2",
                 "-frames:v", str(max_frames),
-                "-qscale:v", "2",
+                "-qscale:v", "5",
                 f"{tmpdir}/frame_%d.jpg",
             ],
             capture_output=True, timeout=30,

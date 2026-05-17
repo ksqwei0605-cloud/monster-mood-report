@@ -32,4 +32,5 @@ MAX_VIDEO_SIZE_MB = 200
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"}
 
 # -- Video frame extraction --
-MAX_VIDEO_FRAMES = 8  # max frames to send to vision model
+MAX_VIDEO_FRAMES = 4  # max frames to send to vision model
+VIDEO_FRAME_WIDTH = 480  # downscale frames to keep base64 within vLLM context window

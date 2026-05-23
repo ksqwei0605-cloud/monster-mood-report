@@ -9,6 +9,17 @@ import { uploadVideo, pollTask, generateAnswers } from "@/lib/api";
 // 增加 upload / loading 两步,对应后端的"上传视频→等待分析→拿到 ReportData"
 type Step = "upload" | "loading" | "monster" | "report" | "transition" | "questions" | "answers" | "card";
 
+// 3 只候选小妖怪:monster、焰焰狐、星绒绒
+const MONSTER_POOL = [
+  { src: "/monster.mp4", poster: "/monster.png" },
+  { src: "/焰焰狐.mp4", poster: "/monster.png" },
+  { src: "/星绒绒.mp4", poster: "/monster.png" },
+] as const;
+
+function randomMonster() {
+  return MONSTER_POOL[Math.floor(Math.random() * MONSTER_POOL.length)];
+}
+
 export function YaoyaoApp() {
   // ★ 默认从 upload 进。想跳过后端直接看 demo UI?把这里改成 "monster"。
   const [step, setStep] = useState<Step>("upload");
@@ -17,6 +28,7 @@ export function YaoyaoApp() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<EmotionMonster | null>(null);
+  const [monsterVideo, setMonsterVideo] = useState(randomMonster);
 
   const go = (s: Step) => setStep(s);
 
@@ -59,6 +71,7 @@ export function YaoyaoApp() {
     setSelectedQuestion(null);
     setSelectedAnswer(null);
     setUploadError(null);
+    setMonsterVideo(randomMonster());
     setStep("upload");
   };
 
@@ -67,8 +80,8 @@ export function YaoyaoApp() {
       <Header />
       {step === "upload" && <UploadScreen onUpload={handleUpload} error={uploadError} />}
       {step === "loading" && <LoadingScreen seconds={pollSeconds} />}
-      {step === "monster" && <MonsterScreen onNext={() => go("report")} />}
-      {step === "report" && <ReportScreen onNext={() => go("transition")} />}
+      {step === "monster" && <MonsterScreen onNext={() => go("report")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
+      {step === "report" && <ReportScreen onNext={() => go("transition")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
       {step === "transition" && <TransitionScreen onDone={() => go("questions")} />}
       {step === "questions" && (
         <QuestionsScreen onPick={handlePickQuestion} />
@@ -86,6 +99,8 @@ export function YaoyaoApp() {
         <CardScreen
           question={selectedQuestion}
           answer={selectedAnswer}
+          monsterSrc={monsterVideo.src}
+          monsterPoster={monsterVideo.poster}
           onRestart={restart}
           onSave={() => toast("卡片已保存到妖妖口袋！🎀")}
           onShare={() => toast("分享链接已生成！✨")}
@@ -523,7 +538,7 @@ const COMMON_BG = encodeURI("/妖妖占卜屋1.png");
  *   - 标签内容:chips 数组
  *   - 装饰 emoji:DECOR 数组
  */
-function MonsterScreen({ onNext }: { onNext: () => void }) {
+function MonsterScreen({ onNext, monsterSrc, monsterPoster }: { onNext: () => void; monsterSrc: string; monsterPoster: string }) {
   const m = yaoyaoData.monster;
 
   // 主深色——按需求"深棕色"。可在这里统一调
@@ -596,7 +611,7 @@ function MonsterScreen({ onNext }: { onNext: () => void }) {
 
         {/* 角色 + 落地椭圆阴影 */}
         <div className="relative mt-4 mb-1">
-          <AnimatedMonster size={300} />
+          <AnimatedMonster size={300} src={monsterSrc} poster={monsterPoster} />
           {/* 淡粉色椭圆落地阴影 */}
           <div
             aria-hidden
@@ -726,7 +741,7 @@ const PETAL_LAYOUT = [
   { left: "72%", top: "72%", rotate: 125 },  // 右下 — 叶尖指右下
 ];
 
-function ReportScreen({ onNext }: { onNext: () => void }) {
+function ReportScreen({ onNext, monsterSrc, monsterPoster }: { onNext: () => void; monsterSrc: string; monsterPoster: string }) {
   const [active, setActive] = useState<number | null>(null);
   const data = yaoyaoData.mbtiMix;
 
@@ -774,7 +789,7 @@ function ReportScreen({ onNext }: { onNext: () => void }) {
         </div>
 
         {/* 中心妖怪 mp4 —— 轨道之外,不参与旋转 */}
-        <CenterMonster size={CENTER_SIZE} />
+        <CenterMonster size={CENTER_SIZE} src={monsterSrc} poster={monsterPoster} />
       </div>
 
       {/* 点叶子后的 MBTI 解释条。
@@ -1023,8 +1038,7 @@ function MbtiPetal({
  *
  * 替换 mp4 时只改这里的 src(以及可选 poster)。
  */
-function CenterMonster({ size = CENTER_SIZE }: { size?: number }) {
-  // 让 mask 半径稍微更窄一点,让视频背景色尽早羽化掉(消除矩形/方块感)
+function CenterMonster({ size = CENTER_SIZE, src, poster }: { size?: number; src: string; poster: string }) {
   const maskValue =
     "radial-gradient(circle at 50% 50%, #000 50%, transparent 92%)";
 
@@ -1038,12 +1052,9 @@ function CenterMonster({ size = CENTER_SIZE }: { size?: number }) {
         zIndex: 20,
         width: size,
         height: size,
-        // ★ 关键修复:妖怪只是装饰,不接收点击。
-        // 否则它的 220×220 容器会盖住四片叶子的叶根,导致点击叶子无效。
         pointerEvents: "none",
       }}
     >
-      {/* 背后柔和粉色光晕(只是发光,不是白底) */}
       <div
         aria-hidden
         className="absolute"
@@ -1054,7 +1065,6 @@ function CenterMonster({ size = CENTER_SIZE }: { size?: number }) {
           filter: "blur(10px)",
         }}
       />
-      {/* ★ 替换这里的 src 即可换中心妖怪视频 */}
       {/* iOS 不支持 video 上的 CSS mask,把 mask 放在 wrapper div 上 */}
       <div
         className="relative w-full h-full"
@@ -1064,8 +1074,8 @@ function CenterMonster({ size = CENTER_SIZE }: { size?: number }) {
         }}
       >
         <video
-          src="/monster.mp4"
-          poster="/monster.png"
+          src={src}
+          poster={poster}
           autoPlay
           loop
           muted
@@ -1788,12 +1798,16 @@ function MonsterBubble({
 function CardScreen({
   question,
   answer,
+  monsterSrc,
+  monsterPoster,
   onRestart,
   onSave,
   onShare,
 }: {
   question: string;
   answer: EmotionMonster;
+  monsterSrc: string;
+  monsterPoster: string;
   onRestart: () => void;
   onSave: () => void;
   onShare: () => void;
@@ -1809,9 +1823,8 @@ function CardScreen({
     date: dateStr,
     monsterName: monster.name,
     monsterType: monster.type,
-    // 主妖怪头像:用首屏的 mp4(/monster.mp4)。如果想换静态图,改这里即可。
-    monsterMedia: "/monster.mp4",
-    monsterPoster: "/monster.png",
+    monsterMedia: monsterSrc,
+    monsterPoster: monsterPoster,
     monsterColor: monster.color,
     mbti: topMbti.type,
     mbtiPercent: topMbti.percent,

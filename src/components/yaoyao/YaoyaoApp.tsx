@@ -418,8 +418,8 @@ function UploadScreen({
 /* ---------------- Screen 0b: Loading ---------------- */
 /* ---------------- 孵蛋期间预加载后续资源 ---------------- */
 /**
- * PrefetchAssets —— 用隐藏的 <video preload="auto"> / <img> 强制浏览器
- * 在孵蛋期间下载后续所有页面的视频和图片,解决切屏黑块问题。
+ * PrefetchAssets —— 用 fetch() 强制下载后续页面的视频到浏览器缓存,
+ * 配合隐藏 <img> 预加载图片。视频已压至 64-200KB,秒级加载完成。
  */
 function PrefetchAssets({ monsterSrc }: { monsterSrc: string }) {
   const videos = [
@@ -432,11 +432,16 @@ function PrefetchAssets({ monsterSrc }: { monsterSrc: string }) {
     "/妖妖占卜屋.png", "/妖妖占卜屋1.png", "/妖妖占卜屋screen5.png",
   ];
 
+  // fetch() 把文件真实下载到 HTTP cache,后续 <video> 直接从缓存读取
+  useEffect(() => {
+    videos.forEach((src) => {
+      fetch(encodeURI(src), { mode: "same-origin" }).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monsterSrc]);
+
   return (
     <div aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", opacity: 0, pointerEvents: "none" }}>
-      {videos.map((src) => (
-        <video key={src} src={encodeURI(src)} preload="auto" muted playsInline style={{ width: 1, height: 1 }} />
-      ))}
       {images.map((src) => (
         <img key={src} src={encodeURI(src)} alt="" style={{ width: 1, height: 1 }} />
       ))}

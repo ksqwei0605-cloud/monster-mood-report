@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import time
 import traceback
 import uuid
@@ -10,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import ALLOWED_VIDEO_TYPES, LLM_PROVIDER, MAX_VIDEO_SIZE_MB, TEMP_DIR, VISION_PROVIDER
+from config import ALLOWED_VIDEO_TYPES, LLM_PROVIDER, MAX_VIDEO_SIZE_MB, TEMP_DIR
 from models import (
     EmotionMonster,
     GenerateAnswersRequest,
@@ -22,6 +23,7 @@ from models import (
 from services import (
     APIError,
     analyze_video,
+    analyze_video_from_source,
     generate_monster_answers,
     generate_report,
 )
@@ -123,7 +125,12 @@ async def _process_video(task_id: str, file_path: str) -> None:
         try:
             tasks[task_id]["status"] = TaskStatus.PROCESSING
 
+            # Stage 1 — instant template analysis (no real vision model)
             video_analysis = await analyze_video(file_path)
+
+            # Stage 2 — brief pause, then DeepSeek generates the structured report
+            await asyncio.sleep(1.0 + random.random() * 0.8)  # 1.0–1.8 s
+
             report_dict = await generate_report(video_analysis)
             report = _normalize_report(report_dict)
 
@@ -150,7 +157,7 @@ async def _process_video(task_id: str, file_path: str) -> None:
 @app.on_event("startup")
 async def startup() -> None:
     os.makedirs(TEMP_DIR, exist_ok=True)
-    print(f"[妖妖乐] vision={VISION_PROVIDER}  llm={LLM_PROVIDER}")
+    print(f"[妖妖乐] vision=template  llm={LLM_PROVIDER}")
 
 
 @app.post("/api/upload-video", response_model=TaskResponse)
@@ -222,11 +229,52 @@ async def generate_answers(req: GenerateAnswersRequest) -> GenerateAnswersRespon
     return GenerateAnswersResponse(emotionMonsters=_make_monsters_with_answers(answers))
 
 
+@app.post("/api/upload-demo", response_model=TaskResponse)
+async def upload_demo(source: str = "") -> TaskResponse:
+    """Instant demo upload — no file transfer, uses source-matched template."""
+    task_id = uuid.uuid4().hex[:12]
+
+    _prune_tasks()
+
+    tasks[task_id] = {
+        "status": TaskStatus.PENDING,
+        "result": None,
+        "video_analysis": None,
+        "error": None,
+        "_created": time.time(),
+    }
+
+    asyncio.create_task(_process_demo(task_id, source))
+
+    return TaskResponse(task_id=task_id, status=TaskStatus.PENDING)
+
+
+async def _process_demo(task_id: str, source: str) -> None:
+    async with _video_semaphore:
+        try:
+            tasks[task_id]["status"] = TaskStatus.PROCESSING
+
+            video_analysis = analyze_video_from_source(source)
+            await asyncio.sleep(1.0 + random.random() * 0.8)
+
+            report_dict = await generate_report(video_analysis)
+            report = _normalize_report(report_dict)
+
+            tasks[task_id]["status"] = TaskStatus.COMPLETED
+            tasks[task_id]["result"] = report
+            tasks[task_id]["video_analysis"] = video_analysis
+
+        except Exception as exc:
+            tasks[task_id]["status"] = TaskStatus.FAILED
+            tasks[task_id]["error"] = f"{type(exc).__name__}: {exc}"
+            traceback.print_exc()
+
+
 @app.get("/api/health")
 async def health():
     return {
         "status": "ok",
-        "vision": VISION_PROVIDER,
+        "vision": "template",
         "llm": LLM_PROVIDER,
         "tasks": len(tasks),
     }

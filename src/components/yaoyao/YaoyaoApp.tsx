@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { yaoyaoData, setYaoyaoData, setYaoyaoAnswers, type EmotionMonster } from "@/lib/yaoyao-data";
 import { CuteMonster, ScreenFrame } from "./CuteMonster";
 import { AnimatedMonster } from "@/components/AnimatedMonster";
-import { uploadVideo, pollTask, generateAnswers } from "@/lib/api";
+import { uploadVideo, uploadDemoVideo, pollTask, generateAnswers } from "@/lib/api";
 
 // 增加 upload / loading 两步,对应后端的"上传视频→等待分析→拿到 ReportData"
 type Step = "upload" | "loading" | "monster" | "report" | "transition" | "questions" | "answers" | "card";
@@ -34,11 +34,17 @@ export function YaoyaoApp() {
 
   // 上传视频 → 拿 task_id → 轮询 → 用 ReportData 覆盖 yaoyaoData → 进 monster 屏
   // mutate yaoyaoData 让所有 6 个 Screen 不用改一行就能读到后端真实数据
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (fileOrSource: File | string) => {
     setUploadError(null);
     setPollSeconds(0);
     try {
-      const tid = await uploadVideo(file);
+      let tid: string;
+      if (typeof fileOrSource === "string") {
+        // Demo video — bypass file upload, send source name directly
+        tid = await uploadDemoVideo(fileOrSource);
+      } else {
+        tid = await uploadVideo(fileOrSource);
+      }
       setTaskId(tid);
       go("loading");
       const result = await pollTask(tid, (elapsed) => setPollSeconds(elapsed));
@@ -142,7 +148,7 @@ function UploadScreen({
   onUpload,
   error,
 }: {
-  onUpload: (f: File) => Promise<void> | void;
+  onUpload: (f: File | string) => Promise<void> | void;
   error: string | null;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -150,17 +156,13 @@ function UploadScreen({
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 点示例视频:抓取 blob → File → 直接走和"点提交"一样的 onUpload 通道。
-  // 这样 YaoyaoApp.handleUpload 自动 setTaskId + go("loading"),不需要改主控逻辑。
+  // 点示例视频:直接发送 source 名称到后端,不再下载+上传文件本体。
+  // 后端用与视频内容匹配的模板秒出分析,省去移动端上传 2-5MB 的等待时间。
   const handleDemoClick = async (src: string, label: string) => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const resp = await fetch(encodeURI(src));
-      if (!resp.ok) throw new Error("示例视频加载失败");
-      const blob = await resp.blob();
-      const f = new File([blob], `${label}.mp4`, { type: blob.type || "video/mp4" });
-      await onUpload(f);
+      await onUpload(label as any);
     } catch {
       toast("示例视频走丢了 🥺");
       setSubmitting(false);

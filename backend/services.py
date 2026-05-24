@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import os
+import random
 import subprocess
-import tempfile
 
 import httpx
 
@@ -14,22 +12,69 @@ from config import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     LLM_PROVIDER,
-    MAX_VIDEO_FRAMES,
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_LLM_MODEL,
-    VIDEO_FRAME_WIDTH,
-    VIDEO_MODEL,
-    VISION_PROVIDER,
-    VLLM_BASE_URL,
-    VLLM_MODEL,
 )
 from prompts import (
     ANSWER_SYSTEM_PROMPT,
     REPORT_SYSTEM_PROMPT,
-    VIDEO_ANALYSIS_PROMPT,
-    VIDEO_METADATA_PROMPT,
 )
+
+# ---------------------------------------------------------------------------
+#  Predefined video-analysis templates — each matches one of the 3 demo videos
+# ---------------------------------------------------------------------------
+# Keys match the "source" field sent by the frontend demo buttons.
+
+_DEMO_TEMPLATES: dict[str, str] = {
+    "哈利波特": (
+        "画面中，哈利波特和小天狼星布莱克在霍格沃茨的拱门走廊里相拥。"
+        "温暖的魔法光芒环绕着他们，阳光透过古老的石柱洒落。"
+        "小天狼星脸上带着释然和骄傲的微笑，哈利的眼神中充满了久别重逢的激动与释怀。"
+        "他们的对话缓慢而深情，肢体语言透着彼此信任与依靠。"
+        "整体氛围温馨、感人，带有一丝劫后余生的庆幸与感慨。"
+        "这是一个关于和解、原谅与亲情的经典魔法时刻。"
+        "画面中哈利略微颤抖的手和深吸一口气的细节，暗示着他内心深处仍然藏着对失去的恐惧，但此刻选择勇敢拥抱当下。"
+    ),
+    "小马": (
+        "画面中，一个身穿深色西装、戴着马头头套的人站在红色幕布前。"
+        "马头人姿态自信挺拔，用手势配合着富有节奏感的声音在发表讲话。"
+        "幕布背景简洁正式，灯光聚拢在马头人身上，营造出一种庄严的舞台感。"
+        "画面构图规整，镜头稳定，色调偏暖，给人一种既正式又荒诞的视觉冲击。"
+        "马头人的肢体语言充满了自信与幽默，仿佛在发表一场重要的演讲。"
+        "马头人偶尔用前蹄调整领带的细节、幕布被风轻轻吹动的瞬间，给整个场景增添了一丝戏剧张力和微妙的紧张。"
+    ),
+    "小妖怪": (
+        "画面中，一只毛茸茸的可爱小妖怪开心地举着一张'今日小妖怪'的卡片。"
+        "小妖怪蹦蹦跳跳，卡片上的字迹醒目而有趣，背景是明亮柔和的卡通色调。"
+        "整体画面色彩丰富，紫色与粉色渐变的主调中点缀着金色星星光点。"
+        "小妖怪的表情俏皮而灵动，时而眨眼睛，时而咧嘴大笑，充满童趣。"
+        "氛围轻松愉快，传递出一种'你就是今天的专属小妖怪'的仪式感。"
+        "小妖怪偶尔低头偷看卡片背后的内容、又迅速翻回来的小动作，流露出对未知结果的好奇和一丝小小的忐忑。"
+    ),
+}
+
+# Fallback pool for user-uploaded (non-demo) videos — shuffled at import.
+_FALLBACK_TEMPLATES = [
+    "画面整体色调偏暖，光线柔和，镜头移动平缓。人物表情自然放松，偶尔露出微笑，眼神中带着一丝好奇。背景环境整洁有序，有绿色植物点缀，整体氛围温馨安宁。视频的节奏不快不慢，给人一种舒适惬意的感觉。画面中有细微的动作细节：手指轻敲桌面、脚尖微微晃动，透露出一点点小焦虑。",
+    "画面色彩丰富鲜艳，光线明亮，镜头切换节奏轻快。人物面带笑容，动作活泼灵动，时而蹦跳时而摆手。背景中出现了一些色彩缤纷的装饰物，整体氛围欢快热闹。视频的节奏偏快，给人一种充满能量和活力的感觉。画面中偶尔出现短暂的停顿和思考的表情，暗示着一丝不确定。",
+    "画面整体偏暗但色调柔和，光线从侧面打过来，营造出一种静谧的氛围。人物表情冷静沉稳，偶尔低头思考，偶尔抬眼凝视远方。背景简洁干净，暗色为主，整体氛围偏向内省。视频节奏缓慢，每一个镜头都停留较长时间，给人一种深沉的感觉。画面中有轻轻叹气的小动作，以及反复整理衣角的细节，隐约有些纠结。",
+    "画面明亮通透，高光居多，色彩饱和度较高，给人一种清新的感觉。人物表情丰富多变，时而是夸张的惊讶，时而是俏皮的眨眼。背景充满生活气息，有书籍、茶杯、小摆件等日常物品。视频节奏明快，剪辑点密集，画面信息量较大。画面中不经意间流露出倦意——打了一个小哈欠、揉了揉眼睛。",
+    "画面色调优雅，带有淡淡的滤镜效果，质感细腻。人物姿态舒展，表情温和而专注，有一种沉浸在当下时刻的感觉。背景布置精致，带有艺术感的道具和柔和的灯光点缀其中。视频节奏舒缓，长镜头居多，给人一种从容不迫的印象。画面中人物偶尔皱眉头，似乎在思考什么，手指不自觉地绕着一缕头发。",
+]
+
+random.shuffle(_FALLBACK_TEMPLATES)
+_fallback_idx = 0
+
+
+def _get_analysis_for_source(source: str) -> str:
+    """Return the template analysis for a known demo source, or a random fallback."""
+    if source in _DEMO_TEMPLATES:
+        return _DEMO_TEMPLATES[source]
+    global _fallback_idx
+    tmpl = _FALLBACK_TEMPLATES[_fallback_idx % len(_FALLBACK_TEMPLATES)]
+    _fallback_idx += 1
+    return tmpl
 
 
 class APIError(Exception):
@@ -85,131 +130,11 @@ def _extract_content(api_response: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-#  Vision client (video understanding)
+#  Simulated "video analysis" (no real vision model — template + metadata)
 # ---------------------------------------------------------------------------
 
-def _extract_video_frames(file_path: str, max_frames: int = MAX_VIDEO_FRAMES) -> list[str]:
-    """Extract frames as base64 data-URL strings. Returns empty list on failure."""
-    tmpdir = tempfile.mkdtemp(prefix="frames_")
-    try:
-        duration_s = 5.0
-        probe = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", file_path],
-            capture_output=True, text=True, timeout=15,
-        )
-        if probe.returncode == 0:
-            info = json.loads(probe.stdout)
-            duration_s = float(info.get("format", {}).get("duration", 5))
-
-        # Extract frames from evenly-spaced positions using fast seek (-ss before -i).
-        # This avoids decoding the entire video, cutting extraction time by ~80%.
-        positions = [
-            max(duration_s * 0.10, 0.5),
-            duration_s * 0.50,
-            min(duration_s * 0.90, max(duration_s - 0.5, 0.5)),
-        ]
-        # If only 2 frames needed, use first and last; keep 3 distinct positions
-        positions = positions[:max_frames]
-
-        for i, pos in enumerate(positions):
-            subprocess.run(
-                [
-                    "ffmpeg", "-y",
-                    "-ss", f"{pos:.2f}", "-i", file_path,
-                    "-frames:v", "1",
-                    "-vf", f"scale={VIDEO_FRAME_WIDTH}:-2",
-                    "-qscale:v", "5",
-                    f"{tmpdir}/frame_{i + 1}.jpg",
-                ],
-                capture_output=True, timeout=15,
-            )
-
-        frames = []
-        for name in sorted(os.listdir(tmpdir), key=lambda n: int(n.split("_")[1].split(".")[0]) if "_" in n else 0):
-            path = os.path.join(tmpdir, name)
-            with open(path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-                frames.append(f"data:image/jpeg;base64,{b64}")
-        return frames
-    except Exception:
-        return []
-    finally:
-        for name in os.listdir(tmpdir):
-            try:
-                os.remove(os.path.join(tmpdir, name))
-            except OSError:
-                pass
-        try:
-            os.rmdir(tmpdir)
-        except OSError:
-            pass
-
-
-async def _analyze_video_vllm(file_path: str) -> str:
-    """Extract frames and send to vLLM (Qwen3-VL) for visual understanding."""
-    frames = await asyncio.to_thread(_extract_video_frames, file_path)
-    if not frames:
-        raise APIError("Failed to extract video frames")
-
-    content: list[dict] = []
-    for fb in frames:
-        content.append({"type": "image_url", "image_url": {"url": fb}})
-    content.append({"type": "text", "text": VIDEO_ANALYSIS_PROMPT})
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as cli:
-        resp = await cli.post(
-            f"{VLLM_BASE_URL}/chat/completions",
-            json={
-                "model": VLLM_MODEL,
-                "messages": [{"role": "user", "content": content}],
-                "temperature": 0.8,
-                "max_tokens": 2048,
-            },
-        )
-        if resp.status_code != 200:
-            raise APIError(f"Vision error ({resp.status_code}): {resp.text[:500]}")
-        return _extract_content(resp.json())
-
-
-async def _upload_and_analyze_openai(file_path: str) -> str:
-    """Upload video to OpenAI-Next and analyze with doubao."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as cli:
-        with open(file_path, "rb") as fh:
-            upload_resp = await cli.post(
-                f"{OPENAI_BASE_URL}/files",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                files={"file": (os.path.basename(file_path), fh, "video/mp4")},
-                data={"purpose": "vision"},
-            )
-        if upload_resp.status_code != 200:
-            raise APIError(f"File upload failed ({upload_resp.status_code}): {upload_resp.text}")
-        file_id = upload_resp.json()["id"]
-
-        chat_resp = await cli.post(
-            f"{OPENAI_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": VIDEO_MODEL,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "file", "file": {"file_id": file_id}},
-                        {"type": "text", "text": VIDEO_ANALYSIS_PROMPT},
-                    ],
-                }],
-                "max_tokens": 2048,
-            },
-        )
-        if chat_resp.status_code != 200:
-            raise APIError(f"Video analysis failed ({chat_resp.status_code}): {chat_resp.text}")
-        return _extract_content(chat_resp.json())
-
-
 def _get_video_metadata(file_path: str) -> dict:
-    """Fallback: extract technical metadata for text-only analysis."""
+    """Lightweight metadata probe for the simulated analysis text."""
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
@@ -218,55 +143,60 @@ def _get_video_metadata(file_path: str) -> dict:
         )
         info = json.loads(result.stdout)
     except (subprocess.TimeoutExpired, json.JSONDecodeError):
-        return {"filename": os.path.basename(file_path), "duration": "未知", "resolution": "未知", "codec": "未知", "filesize": "未知"}
+        return {"filename": os.path.basename(file_path), "duration_s": 0}
 
     fmt = info.get("format", {})
-    streams = info.get("streams", [])
-    video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
-
-    duration_s = float(fmt.get("duration", 0))
-    if duration_s >= 60:
-        duration_str = f"{int(duration_s // 60)}分{int(duration_s % 60)}秒"
-    else:
-        duration_str = f"{int(duration_s)}秒"
-
-    size_bytes = int(fmt.get("size", 0))
-    if size_bytes > 1024 * 1024 * 1024:
-        filesize_str = f"{size_bytes / (1024*1024*1024):.1f}GB"
-    elif size_bytes > 1024 * 1024:
-        filesize_str = f"{size_bytes / (1024*1024):.1f}MB"
-    else:
-        filesize_str = f"{size_bytes / 1024:.1f}KB"
-
     return {
         "filename": os.path.basename(file_path),
-        "duration": duration_str,
-        "resolution": f"{video_stream.get('width', '?')}x{video_stream.get('height', '?')}",
-        "codec": video_stream.get("codec_name", fmt.get("format_name", "未知")),
-        "filesize": filesize_str,
+        "duration_s": float(fmt.get("duration", 0)),
     }
 
 
-# ---------------------------------------------------------------------------
-#  Public API
-# ---------------------------------------------------------------------------
-
 async def analyze_video(file_path: str) -> str:
-    """Analyze a video file. Uses vision model when available, metadata fallback otherwise."""
-    if VISION_PROVIDER == "vllm":
-        return await _analyze_video_vllm(file_path)
-    elif VISION_PROVIDER == "doubao":
-        return await _upload_and_analyze_openai(file_path)
-    else:
-        # Pure text fallback: metadata → LLM simulation
-        meta = _get_video_metadata(file_path)
-        prompt = VIDEO_METADATA_PROMPT.format(**meta)
-        response = await _llm_chat(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.9,
-            max_tokens=2048,
-        )
-        return _extract_content(response)
+    """Simulated video analysis — metadata + template (fallback for custom uploads)."""
+    meta = _get_video_metadata(file_path)
+    duration_s = meta["duration_s"]
+    duration_label = f"{int(duration_s)}秒" if duration_s < 60 else f"{int(duration_s // 60)}分{int(duration_s % 60)}秒"
+    template = _get_analysis_for_source("")
+
+    return (
+        f"[模拟视频理解] 用户上传了视频「{meta['filename']}」,时长约{duration_label}。\n\n"
+        f"{template}\n\n"
+        f"[分析摘要] 基于以上画面观察,该视频传递出的核心情绪线索已在上述描述中体现。"
+        f"请根据这些描述,结合用户可能的生活场景,生成完整的妖怪报告。"
+    )
+
+
+def analyze_video_from_source(source: str) -> str:
+    """Instant analysis for demo videos — returns the source-matching template directly,
+    no file I/O, no ffprobe, no network call."""
+    template = _get_analysis_for_source(source)
+    label = {"哈利波特": "哈利波特与小天狼星", "小马": "马头人演讲", "小妖怪": "小妖怪举牌"}.get(source, source)
+
+    # Monster style hints — guide DeepSeek to create a monster matching the video's vibe.
+    hints = {
+        "哈利波特": (
+            '【妖怪风格引导】请生成一只温暖治愈系的小妖怪，名字建议偏向「暖」「光」「抱」等柔软意象(如暖暖狮、光光鹿、抱抱熊)，'
+            '类型围绕「和解」「重逢」「治愈」来构思。emoji 建议选 🐱🐰🐼 类。整体气质：温柔、包容、给人安全感。'
+        ),
+        "小马": (
+            '【妖怪风格引导】请生成一只自信幽默系的小妖怪，名字建议偏向「言」「思」「哲」等庄重意象(如言言马、思思鸦、哲哲狐)，'
+            '类型围绕「表达」「思考」「仪式感」来构思。emoji 建议选 🦊🐨🐻 类。整体气质：自信、有主见、带点反差萌的幽默感。'
+        ),
+        "小妖怪": (
+            '【妖怪风格引导】请生成一只活泼俏皮系的小妖怪，名字建议偏向「蹦」「跳」「糖」等灵动意象(如蹦蹦糖、跳跳兔、糖糖狐)，'
+            '类型围绕「元气」「仪式感」「小确幸」来构思。emoji 建议选 🐣🦋🐶 类。整体气质：元气满满、好奇、喜欢给人惊喜。'
+        ),
+    }
+
+    hint = hints.get(source, "")
+    return (
+        f"[模拟视频理解] 用户选择了示例视频「{label}」。\n\n"
+        f"{template}\n\n"
+        f"{hint}\n\n"
+        f"[分析摘要] 基于以上画面观察,该视频传递出的核心情绪线索已在上述描述中体现。"
+        f"请根据这些描述和妖怪风格引导,生成完整的妖怪报告。"
+    )
 
 
 async def generate_report(video_analysis: str) -> dict:

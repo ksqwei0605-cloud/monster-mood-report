@@ -59,6 +59,24 @@ export async function uploadVideo(file: File): Promise<string> {
   return data.task_id;
 }
 
+export async function uploadDemoVideo(source: string): Promise<string> {
+  const form = new FormData();
+  form.append("source", source);
+
+  const resp = await fetch(`${API_BASE}/api/upload-demo`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || "Demo upload failed");
+  }
+
+  const data: TaskResponse = await resp.json();
+  return data.task_id;
+}
+
 export async function pollTask(
   taskId: string,
   onProgress?: (elapsed: number) => void,

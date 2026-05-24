@@ -97,6 +97,7 @@ export function YaoyaoApp() {
         <HatchEggScreen
           seconds={pollSeconds}
           backendReady={backendReady}
+          monsterSrc={monsterVideo.src}
           onHatchComplete={() => go("monster")}
         />
       )}
@@ -417,12 +418,12 @@ function UploadScreen({
 /* ---------------- Screen 0b: Loading ---------------- */
 /* ---------------- 孵蛋期间预加载后续资源 ---------------- */
 /**
- * PrefetchAssets —— 在孵蛋阶段用 <link rel="preload"> 提前下载后续页面
- * 所有视频和图片,避免切屏时出现黑色空白区域。
+ * PrefetchAssets —— 用隐藏的 <video preload="auto"> / <img> 强制浏览器
+ * 在孵蛋期间下载后续所有页面的视频和图片,解决切屏黑块问题。
  */
-function PrefetchAssets() {
+function PrefetchAssets({ monsterSrc }: { monsterSrc: string }) {
   const videos = [
-    "/monster.mp4", "/焰焰狐.mp4", "/星绒绒.mp4",
+    monsterSrc,
     "/乐啵啵.mp4", "/灰绵绵.mp4", "/怯团团.mp4",
     "/嫌叽叽.mp4", "/炸毛毛.mp4", "/黑夜转身.mp4",
   ];
@@ -432,14 +433,14 @@ function PrefetchAssets() {
   ];
 
   return (
-    <>
+    <div aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", opacity: 0, pointerEvents: "none" }}>
       {videos.map((src) => (
-        <link key={src} rel="preload" as="video" href={encodeURI(src)} />
+        <video key={src} src={encodeURI(src)} preload="auto" muted playsInline style={{ width: 1, height: 1 }} />
       ))}
       {images.map((src) => (
-        <link key={src} rel="preload" as="image" href={encodeURI(src)} />
+        <img key={src} src={encodeURI(src)} alt="" style={{ width: 1, height: 1 }} />
       ))}
-    </>
+    </div>
   );
 }
 
@@ -469,10 +470,12 @@ const HATCH_DELAY_MS = 1500;
 function HatchEggScreen({
   seconds,
   backendReady,
+  monsterSrc,
   onHatchComplete,
 }: {
   seconds: number;
   backendReady: boolean;
+  monsterSrc: string;
   onHatchComplete: () => void;
 }) {
   const [progress, setProgress] = useState(0);
@@ -519,7 +522,7 @@ function HatchEggScreen({
   return (
     <ScreenFrame keyId="hatch" bg={COMMON_BG}>
       {/* 孵蛋期间预加载后续所有页面资源,避免切换时黑屏空白 */}
-      <PrefetchAssets />
+      <PrefetchAssets monsterSrc={monsterSrc} />
       <div className="flex flex-col items-center justify-center" style={{ minHeight: "70vh" }}>
         {/* 标题 */}
         <h1

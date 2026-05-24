@@ -12,8 +12,8 @@ type Step = "upload" | "hatch" | "monster" | "report" | "transition" | "question
 // 3 只候选小妖怪:monster、焰焰狐、星绒绒
 const MONSTER_POOL = [
   { src: "/monster.mp4", poster: "/monster.png" },
-  { src: "/焰焰狐.mp4", poster: "/monster.png" },
-  { src: "/星绒绒.mp4", poster: "/monster.png" },
+  { src: "/焰焰狐.mp4", poster: "" },
+  { src: "/星绒绒.mp4", poster: "" },
 ] as const;
 
 function randomMonster() {
@@ -486,7 +486,7 @@ function HatchEggScreen({
   };
 
   // 根据进度选视频(素材暂统一用孵蛋.mp4)
-  const videoSrc = encodeURI("/孵蛋.mp4");
+  const videoSrc = "/孵蛋.mp4";
 
   return (
     <ScreenFrame keyId="hatch" bg={COMMON_BG}>

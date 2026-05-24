@@ -415,6 +415,34 @@ function UploadScreen({
 }
 
 /* ---------------- Screen 0b: Loading ---------------- */
+/* ---------------- 孵蛋期间预加载后续资源 ---------------- */
+/**
+ * PrefetchAssets —— 在孵蛋阶段用 <link rel="preload"> 提前下载后续页面
+ * 所有视频和图片,避免切屏时出现黑色空白区域。
+ */
+function PrefetchAssets() {
+  const videos = [
+    "/monster.mp4", "/焰焰狐.mp4", "/星绒绒.mp4",
+    "/乐啵啵.mp4", "/灰绵绵.mp4", "/怯团团.mp4",
+    "/嫌叽叽.mp4", "/炸毛毛.mp4", "/黑夜转身.mp4",
+  ];
+  const images = [
+    "/monster.png",
+    "/妖妖占卜屋.png", "/妖妖占卜屋1.png", "/妖妖占卜屋screen5.png",
+  ];
+
+  return (
+    <>
+      {videos.map((src) => (
+        <link key={src} rel="preload" as="video" href={encodeURI(src)} />
+      ))}
+      {images.map((src) => (
+        <link key={src} rel="preload" as="image" href={encodeURI(src)} />
+      ))}
+    </>
+  );
+}
+
 /* ---------------- Screen 0b: HatchEgg (孵蛋交互) ---------------- */
 /**
  * HatchEggScreen —— "孵化今日小妖怪"
@@ -490,6 +518,8 @@ function HatchEggScreen({
 
   return (
     <ScreenFrame keyId="hatch" bg={COMMON_BG}>
+      {/* 孵蛋期间预加载后续所有页面资源,避免切换时黑屏空白 */}
+      <PrefetchAssets />
       <div className="flex flex-col items-center justify-center" style={{ minHeight: "70vh" }}>
         {/* 标题 */}
         <h1

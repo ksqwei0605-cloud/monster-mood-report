@@ -6,8 +6,8 @@ import { CuteMonster, ScreenFrame } from "./CuteMonster";
 import { AnimatedMonster } from "@/components/AnimatedMonster";
 import { uploadVideo, uploadDemoVideo, pollTask, generateAnswers } from "@/lib/api";
 
-// 增加 upload / loading 两步,对应后端的"上传视频→等待分析→拿到 ReportData"
-type Step = "upload" | "loading" | "monster" | "report" | "transition" | "questions" | "answers" | "card";
+// upload → hatch(孵蛋交互,后台轮询) → monster → report → transition → questions → answers → card
+type Step = "upload" | "hatch" | "monster" | "report" | "transition" | "questions" | "answers" | "card";
 
 // 3 只候选小妖怪:monster、焰焰狐、星绒绒
 const MONSTER_POOL = [
@@ -29,14 +29,15 @@ export function YaoyaoApp() {
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<EmotionMonster | null>(null);
   const [monsterVideo, setMonsterVideo] = useState(randomMonster);
+  const [backendReady, setBackendReady] = useState(false);
 
   const go = (s: Step) => setStep(s);
 
-  // 上传视频 → 拿 task_id → 轮询 → 用 ReportData 覆盖 yaoyaoData → 进 monster 屏
-  // mutate yaoyaoData 让所有 6 个 Screen 不用改一行就能读到后端真实数据
+  // 上传视频/示例 → 拿 task_id → 进孵蛋页 → 后台轮询 → backendReady
   const handleUpload = async (fileOrSource: File | string) => {
     setUploadError(null);
     setPollSeconds(0);
+    setBackendReady(false);
     try {
       let tid: string;
       if (typeof fileOrSource === "string") {
@@ -46,10 +47,16 @@ export function YaoyaoApp() {
         tid = await uploadVideo(fileOrSource);
       }
       setTaskId(tid);
-      go("loading");
-      const result = await pollTask(tid, (elapsed) => setPollSeconds(elapsed));
-      setYaoyaoData(result);
-      go("monster");
+      go("hatch");
+      // 后台轮询,不阻塞孵蛋交互
+      pollTask(tid, (elapsed) => setPollSeconds(elapsed))
+        .then((result) => {
+          setYaoyaoData(result);
+          setBackendReady(true);
+        })
+        .catch((e) => {
+          setUploadError(e instanceof Error ? e.message : "分析失败");
+        });
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "上传或分析失败");
       go("upload");
@@ -77,6 +84,7 @@ export function YaoyaoApp() {
     setSelectedQuestion(null);
     setSelectedAnswer(null);
     setUploadError(null);
+    setBackendReady(false);
     setMonsterVideo(randomMonster());
     setStep("upload");
   };
@@ -85,7 +93,13 @@ export function YaoyaoApp() {
     <div className="min-h-screen flex flex-col items-center pb-10">
       <Header />
       {step === "upload" && <UploadScreen onUpload={handleUpload} error={uploadError} />}
-      {step === "loading" && <LoadingScreen seconds={pollSeconds} />}
+      {step === "hatch" && (
+        <HatchEggScreen
+          seconds={pollSeconds}
+          backendReady={backendReady}
+          onHatchComplete={() => go("monster")}
+        />
+      )}
       {step === "monster" && <MonsterScreen onNext={() => go("report")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
       {step === "report" && <ReportScreen onNext={() => go("transition")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
       {step === "transition" && <TransitionScreen onDone={() => go("questions")} />}
@@ -401,98 +415,218 @@ function UploadScreen({
 }
 
 /* ---------------- Screen 0b: Loading ---------------- */
+/* ---------------- Screen 0b: HatchEgg (孵蛋交互) ---------------- */
 /**
- * LoadingScreen —— 后端在跑视觉模型 + LLM 生成报告时的等待屏。
- * 视觉:彩虹光环(conic-gradient)旋转,里面循环播放 5 只情绪小妖怪 mp4(onEnded 切下一个) + 提示语 + 计时秒数。
+ * HatchEggScreen —— "孵化今日小妖怪"
+ *
+ * 用户点击妖蛋 → 孵化进度增加;不点击 → 进度缓慢下降。
+ * 进度到达 100 → 播放孵化动画 → 等后端数据就绪后跳转到 Monster 页。
+ *
+ * 三段视频素材(放在 public/ 下):
+ *   /egg-idle.mp4   — 空闲:蛋轻轻漂浮发光 loop
+ *   /egg-active.mp4  — 点击:蛋抖动、裂纹发光 loop
+ *   /egg-hatch.mp4   — 孵化成功:强光、裂开、粒子爆发短视频
+ *
+ * 调参速查:
+ *   - CLICK_BOOST  → 单次点击增加点数
+ *   - DECAY_PER_TICK → 每 50ms 衰减点数
+ *   - ACTIVE_THRESHOLD → 切换到 active 视频的进度阈值
+ *   - HATCH_DELAY_MS → 孵化动画播放多久后检查后端
  */
-const LOADING_MONSTERS = [
-  "/乐啵啵.mp4",
-  "/灰绵绵.mp4",
-  "/怯团团.mp4",
-  "/嫌叽叽.mp4",
-  "/炸毛毛.mp4",
-];
+const CLICK_BOOST = 6;
+const DECAY_PER_TICK = 0.8;
+const ACTIVE_THRESHOLD = 40;
+const HATCH_DELAY_MS = 1500;
 
-function LoadingScreen({ seconds }: { seconds: number }) {
-  const tips = [
-    "妖妖正在用魔法看视频…",
-    "把画面熬成今日小妖怪…",
-    "调好今日 MBTI 配方…",
-    "给云朵充能量值…",
-    "马上就好,再等一下下…",
-  ];
-  // 每 3 秒换一句
-  const tip = tips[Math.min(Math.floor(seconds / 3), tips.length - 1)];
+function HatchEggScreen({
+  seconds,
+  backendReady,
+  onHatchComplete,
+}: {
+  seconds: number;
+  backendReady: boolean;
+  onHatchComplete: () => void;
+}) {
+  const [progress, setProgress] = useState(0);
+  const [isHatching, setIsHatching] = useState(false);
+  const [hatchAnimDone, setHatchAnimDone] = useState(false);
 
-  // 5 只情绪妖怪的循环索引,每个 mp4 播完自然切到下一个
-  const [monsterIdx, setMonsterIdx] = useState(0);
+  // 孵化完成 → 等动画播完 + 后端就绪 → 跳转
+  useEffect(() => {
+    if (!isHatching) return;
+    const t = setTimeout(() => setHatchAnimDone(true), HATCH_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [isHatching]);
+
+  useEffect(() => {
+    if (hatchAnimDone && backendReady) {
+      onHatchComplete();
+    }
+  }, [hatchAnimDone, backendReady, onHatchComplete]);
+
+  // 定时器:不操作时衰减
+  useEffect(() => {
+    if (isHatching) return;
+    const timer = setInterval(() => {
+      setProgress((prev) => Math.max(0, prev - DECAY_PER_TICK));
+    }, 50);
+    return () => clearInterval(timer);
+  }, [isHatching]);
+
+  // 进度到 100 → 孵化
+  useEffect(() => {
+    if (progress >= 100 && !isHatching) {
+      setIsHatching(true);
+    }
+  }, [progress, isHatching]);
+
+  const handleClick = () => {
+    if (isHatching) return;
+    setProgress((prev) => Math.min(100, prev + CLICK_BOOST));
+  };
+
+  // 根据进度选视频(素材暂统一用孵蛋.mp4)
+  const videoSrc = encodeURI("/孵蛋.mp4");
 
   return (
-    <ScreenFrame keyId="loading" bg={COMMON_BG}>
+    <ScreenFrame keyId="hatch" bg={COMMON_BG}>
       <div className="flex flex-col items-center justify-center" style={{ minHeight: "70vh" }}>
-        {/* 旋转彩虹光环 + 内部 5 妖怪 mp4 循环 */}
-        <motion.div
-          className="relative"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+        {/* 标题 */}
+        <h1
+          className="text-center font-extrabold mb-2"
           style={{
-            width: 220,
-            height: 220,
-            borderRadius: "50%",
-            background:
-              "conic-gradient(from 0deg, #f9a8d4, #c4b5fd, #a3c4ff, #fde68a, #f9a8d4)",
-            boxShadow:
-              "0 0 80px rgba(196,167,231,0.65), 0 20px 50px -12px rgba(168,121,224,0.55)",
+            fontSize: "clamp(1.5rem, 6.5vw, 2rem)",
+            background: "linear-gradient(135deg, #c084fc 0%, #ec4899 50%, #a855f7 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            color: "transparent",
+            WebkitTextFillColor: "transparent",
+            letterSpacing: "0.06em",
+            filter: "drop-shadow(0 2px 8px rgba(196,167,231,0.55))",
           }}
         >
-          {/* 反向旋转抵消外层 rotate,保持视频画面不晕。
-              视频本身不旋转,但外圈光环还在转 → 视觉上是"光环包着静止的小妖怪"。 */}
-          <motion.div
-            className="absolute inset-2 rounded-full overflow-hidden"
-            animate={{ rotate: -360 }}
-            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-            style={{ background: "rgba(255,253,255,0.95)" }}
-          >
-            <video
-              key={monsterIdx}
-              src={encodeURI(LOADING_MONSTERS[monsterIdx])}
-              poster="/monster.png"
-              autoPlay
-              muted
-              playsInline
-              preload="auto"
-              className="w-full h-full object-cover"
-              style={{ background: "#1a0a2e" }}
-              onEnded={() =>
-                setMonsterIdx((i) => (i + 1) % LOADING_MONSTERS.length)
-              }
-              onLoadedData={(e) => {
-                const v = e.currentTarget;
-                v.currentTime = 0.05;
-                v.play().catch(() => {});
-              }}
+          {isHatching ? "✨ 小妖怪破壳而出 ✨" : "点击妖蛋，孵化今日小妖怪"}
+        </h1>
+
+        {/* 妖蛋视频区 */}
+        <motion.div
+          className="relative cursor-pointer select-none"
+          onClick={handleClick}
+          animate={isHatching ? { scale: [1, 1.15, 1] } : {}}
+          transition={{ duration: 0.6 }}
+          style={{ touchAction: "manipulation" }}
+          aria-label="点击孵化妖蛋"
+        >
+          {/* 蛋周光晕:进度越高越亮 */}
+          <div
+            aria-hidden
+            className="absolute pointer-events-none rounded-full"
+            style={{
+              inset: -40,
+              background: `radial-gradient(circle, rgba(255,210,240,${0.3 + progress / 200}), rgba(196,167,231,${0.15 + progress / 400}), transparent 70%)`,
+              filter: "blur(18px)",
+            }}
+          />
+
+          <video
+            src={encodeURI(videoSrc)}
+            poster="/monster.png"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            className="relative select-none"
+            style={{
+              width: 260,
+              height: 260,
+              objectFit: "contain",
+              filter: `drop-shadow(0 18px 35px rgba(180,90,220,0.35)) brightness(${1 + progress * 0.003})`,
+              transform: `scale(${1 + progress * 0.001})`,
+              transition: "transform 0.12s ease, filter 0.12s ease",
+            }}
+            onLoadedData={(e) => {
+              const v = e.currentTarget;
+              v.currentTime = 0.05;
+              v.play().catch(() => {});
+            }}
+          />
+
+          {/* 孵化白光 */}
+          {isHatching && (
+            <motion.div
+              className="absolute inset-0 pointer-events-none rounded-full"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 1, 0] }}
+              transition={{ duration: 1.2 }}
+              style={{ background: "white", filter: "blur(24px)" }}
             />
-          </motion.div>
+          )}
         </motion.div>
 
-        {/* 文字 */}
-        <h2
-          className="font-extrabold mt-7"
+        {/* 进度条卡片 */}
+        <div
+          className="w-[86%] max-w-[320px] mt-6 px-5 py-4"
           style={{
-            color: "#3d1745",
-            fontSize: "1.4rem",
-            letterSpacing: "0.05em",
-            textShadow: "0 1px 0 rgba(255,255,255,0.7)",
+            borderRadius: 22,
+            background: "rgba(255,255,255,0.72)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            boxShadow: "0 12px 35px rgba(190,120,220,0.22)",
+            border: "1px solid rgba(255,255,255,0.6)",
           }}
         >
-          {tip}
-        </h2>
-        <p className="mt-2 text-sm" style={{ color: "rgba(74,29,86,0.6)" }}>
-          已等候 {seconds} 秒
+          <div className="flex items-center justify-between mb-2.5">
+            <span
+              className="font-bold"
+              style={{ color: "#8950aa", fontSize: "0.9rem" }}
+            >
+              孵化能量
+            </span>
+            <span
+              className="font-extrabold"
+              style={{ color: "#6b2d8b", fontSize: "1.1rem" }}
+            >
+              {Math.round(progress)}%
+            </span>
+          </div>
+          <div
+            className="w-full h-3.5 rounded-full overflow-hidden"
+            style={{ background: "#f4dff8" }}
+          >
+            <motion.div
+              className="h-full rounded-full"
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.1, ease: "linear" }}
+              style={{
+                background: "linear-gradient(90deg, #ff8bd8, #b78cff, #7fdcff)",
+                boxShadow: "0 1px 4px rgba(180,120,220,0.4) inset",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* 底部提示 */}
+        <p
+          className="mt-4 text-sm text-center"
+          style={{ color: "rgba(74,29,86,0.65)" }}
+        >
+          {isHatching
+            ? backendReady
+              ? "小妖怪来啦！🎉"
+              : "小妖怪正在赶来…🏃‍♀️"
+            : "连续点击妖蛋，让小妖怪醒过来 ✨"}
         </p>
 
-        {/* 浮动小星星 */}
-        <div className="relative w-full mt-6" style={{ height: 60 }}>
+        {/* 后端等待秒数:孵满但后端还没好时显示 */}
+        {isHatching && !backendReady && (
+          <p className="mt-1 text-xs" style={{ color: "rgba(74,29,86,0.45)" }}>
+            已等候 {seconds} 秒
+          </p>
+        )}
+
+        {/* 浮动装饰星星 */}
+        <div className="relative w-full mt-4" style={{ height: 50 }}>
           {[
             { top: "10%", left: "12%", size: 16, color: "#fbcfe8", delay: "0s" },
             { top: "50%", left: "78%", size: 14, color: "#e9d5ff", delay: "0.5s" },
@@ -501,7 +635,7 @@ function LoadingScreen({ seconds }: { seconds: number }) {
           ].map((s, i) => (
             <span
               key={i}
-              className="absolute am-star"
+              className="absolute am-star pointer-events-none"
               style={{
                 top: s.top,
                 left: s.left,

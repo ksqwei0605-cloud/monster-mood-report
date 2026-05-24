@@ -101,6 +101,9 @@ export function YaoyaoApp() {
           onHatchComplete={() => go("monster")}
         />
       )}
+
+      {/* 孵蛋期间:提前渲染后续页面的 <video> 元素(不可见),强制浏览器真正加载视频 */}
+      {step === "hatch" && <PrerenderVideos monsterSrc={monsterVideo.src} />}
       {step === "monster" && <MonsterScreen onNext={() => go("report")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
       {step === "report" && <ReportScreen onNext={() => go("transition")} monsterSrc={monsterVideo.src} monsterPoster={monsterVideo.poster} />}
       {step === "transition" && <TransitionScreen onDone={() => go("questions")} />}
@@ -444,6 +447,28 @@ function PrefetchAssets({ monsterSrc }: { monsterSrc: string }) {
     <div aria-hidden style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", opacity: 0, pointerEvents: "none" }}>
       {images.map((src) => (
         <img key={src} src={encodeURI(src)} alt="" style={{ width: 1, height: 1 }} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * PrerenderVideos —— 在孵蛋期间以 opacity:0 渲染后续页面的 <video> 元素,
+ * 浏览器会将它们当作可见视频加载,这是最可靠的预加载方式。
+ */
+const PRERENDER_MONSTERS = [
+  "/乐啵啵.mp4", "/灰绵绵.mp4", "/怯团团.mp4",
+  "/嫌叽叽.mp4", "/炸毛毛.mp4", "/黑夜转身.mp4",
+];
+
+function PrerenderVideos({ monsterSrc }: { monsterSrc: string }) {
+  return (
+    <div aria-hidden style={{ position: "fixed", inset: 0, zIndex: -999, opacity: 0, pointerEvents: "none", overflow: "hidden" }}>
+      {/* MonsterScreen 的 AnimatedMonster 视频 */}
+      <AnimatedMonster size={300} src={monsterSrc} poster="/monster.png" />
+      {/* 5 只情绪妖怪 + 过渡动画视频 */}
+      {PRERENDER_MONSTERS.map((src) => (
+        <video key={src} src={encodeURI(src)} autoPlay loop muted playsInline preload="auto" style={{ width: 100, height: 100, objectFit: "contain" }} />
       ))}
     </div>
   );

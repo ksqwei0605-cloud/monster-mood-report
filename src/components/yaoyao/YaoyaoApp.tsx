@@ -529,7 +529,8 @@ function HatchEggScreen({
           />
 
           <video
-            src={encodeURI(videoSrc)}
+            key={isHatching ? "hatch" : progress >= ACTIVE_THRESHOLD ? "active" : "idle"}
+            src={videoSrc}
             poster="/monster.png"
             autoPlay
             loop

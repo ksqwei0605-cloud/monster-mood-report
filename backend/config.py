@@ -12,7 +12,7 @@ VISION_PROVIDER = os.getenv("YAOYAO_VISION_PROVIDER", "vllm")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 DEEPSEEK_API_KEY = os.getenv(
     "DEEPSEEK_API_KEY",
-    "sk-4ea33f07d6b44a1b8a55d8d6cfb8b121",
+    "", # 请配置你的 API KEY
 )
 DEEPSEEK_MODEL = "deepseek-chat"
 
@@ -22,7 +22,7 @@ VLLM_MODEL = "/root/Qwen3-VL-32B-Instruct-FP8"
 
 # -- OpenAI-Next (cloud, requires internet) --
 OPENAI_BASE_URL = "https://api.openai-next.com/v1"
-OPENAI_API_KEY = os.getenv("YAOYAO_API_KEY", "sk-8TfEUFiXV0lrMUH22dDd4a6cB74c4f1fA82b2f57E5146fB3")
+OPENAI_API_KEY = os.getenv("YAOYAO_API_KEY", "") # 请配置你的 API KEY
 VIDEO_MODEL = "doubao-seed-2-0-lite-260215"
 OPENAI_LLM_MODEL = "deepseek-v3.2"
 
